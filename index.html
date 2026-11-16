@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Nutrilens AR - Live Camera Produce & Packed Food Safety Scanner</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+            mono: ['Space Grotesk', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React 18 & Babel Standalone -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #090d16;
+      color: #f8fafc;
+      font-family: 'Outfit', sans-serif;
+      overflow: hidden;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- MOCK DATABASE ---
+    const PRODUCE_DATASET = [
+      {
+        id: 'fv-1',
+        name: 'Fresh Fuji Apple',
+        category: 'FRUIT',
+        safetyStatus: 'SAFE',
+        safetyScore: 96,
+        confidence: 0.98,
+        freshnessLevel: 'Freshly Harvested (Optimal Ripeness)',
+        pesticideRisk: 'LOW',
+        nutritionalHighlights: ['Rich in Fiber & Vitamin C', 'Zero Added Sugar', 'High Antioxidants'],
+        warnings: [],
+        recommendation: 'Safe for direct consumption after a gentle water rinse.',
+        boundingBox: { x: 20, y: 25, width: 60, height: 45 }
+      },
+      {
+        id: 'fv-2',
+        name: 'Spoiled Rotting Tomato',
+        category: 'VEGETABLE',
+        safetyStatus: 'UNSAFE',
+        safetyScore: 18,
+        confidence: 0.94,
+        freshnessLevel: 'Advanced Mold Growth & Skin Decay',
+        pesticideRisk: 'HIGH',
+        nutritionalHighlights: ['Degraded Nutrient Quality'],
+        warnings: ['Active fungal spore colony detected', 'Mycotoxin hazard', 'Bacterial risk'],
+        recommendation: 'DO NOT CONSUME. Discard immediately to prevent cross-contamination.',
+        boundingBox: { x: 18, y: 22, width: 64, height: 52 }
+      },
+      {
+        id: 'fv-3',
+        name: 'Organic Spinach Leaves',
+        category: 'VEGETABLE',
+        safetyStatus: 'SAFE',
+        safetyScore: 94,
+        confidence: 0.95,
+        freshnessLevel: 'Crisp & Deep Green',
+        pesticideRisk: 'LOW',
+        nutritionalHighlights: ['Loaded with Iron & Folate', '100% Organic Certified'],
+        warnings: [],
+        recommendation: 'Excellent superfood! Ideal for fresh salads and smoothies.',
+        boundingBox: { x: 15, y: 20, width: 70, height: 50 }
+      },
+      {
+        id: 'fv-4',
+        name: 'Moldy Strawberry Cluster',
+        category: 'FRUIT',
+        safetyStatus: 'UNSAFE',
+        safetyScore: 12,
+        confidence: 0.97,
+        freshnessLevel: 'Gray Mold (Botrytis cinerea) Present',
+        pesticideRisk: 'HIGH',
+        nutritionalHighlights: [],
+        warnings: ['Visible Botrytis fungal mycelium', 'Stomach distress risk'],
+        recommendation: 'UNSAFE! Ingestion may cause allergic reaction or GI inflammation.',
+        boundingBox: { x: 15, y: 20, width: 70, height: 55 }
+      },
+      {
+        id: 'fv-5',
+        name: 'Organic Hass Avocado',
+        category: 'FRUIT',
+        safetyStatus: 'SAFE',
+        safetyScore: 98,
+        confidence: 0.99,
+        freshnessLevel: 'Perfect Butter Consistency',
+        pesticideRisk: 'LOW',
+        nutritionalHighlights: ['Healthy Monounsaturated Fats', 'High Fiber'],
+        warnings: [],
+        recommendation: 'Nutrient-dense produce. Safe and wholesome.',
+        boundingBox: { x: 20, y: 24, width: 60, height: 46 }
+      },
+      {
+        id: 'fv-6',
+        name: 'Chemically Ripened Mango',
+        category: 'FRUIT',
+        safetyStatus: 'UNSAFE',
+        safetyScore: 28,
+        confidence: 0.93,
+        freshnessLevel: 'Unnatural Skin Tint',
+        pesticideRisk: 'HIGH',
+        nutritionalHighlights: [],
+        warnings: ['Calcium Carbide ripener suspected', 'Chemical residue hazard'],
+        recommendation: 'UNSAFE. Avoid consuming chemically forced produce.',
+        boundingBox: { x: 22, y: 28, width: 56, height: 44 }
+      }
+    ];
+
+    const PACKED_FOOD_DATASET = [
+      {
+        id: 'pf-1',
+        name: 'Whole Grain Rolled Oats',
+        brand: 'NaturePure',
+        category: 'PACKED_FOOD',
+        safetyStatus: 'SAFE',
+        safetyScore: 97,
+        confidence: 0.99,
+        preservativesRisk: 'NONE',
+        sugarLevel: 'LOW',
+        sodiumLevel: 'LOW',
+        extractedText: [
+          'NATUREPURE 100% ORGANIC ROLLED OATS',
+          'INGREDIENTS: 100% Organic Whole Grain Oats.',
+          'NO ADDED SUGAR | NO ARTIFICIAL PRESERVATIVES'
+        ],
+        ingredients: ['100% Whole Grain Oats'],
+        harmfulAdditives: [],
+        nutritionalHighlights: ['Soluble Beta-Glucan Fiber', 'Zero Added Sugars'],
+        warnings: [],
+        recommendation: 'Superb health profile! Clean label product safe for daily meals.',
+        boundingBox: { x: 15, y: 18, width: 70, height: 58 }
+      },
+      {
+        id: 'pf-2',
+        name: 'Ultra-Processed Biscuits',
+        brand: 'ChocoCraze',
+        category: 'PACKED_FOOD',
+        safetyStatus: 'UNSAFE',
+        safetyScore: 24,
+        confidence: 0.98,
+        preservativesRisk: 'HIGH',
+        sugarLevel: 'CRITICAL',
+        sodiumLevel: 'HIGH',
+        extractedText: [
+          'CHOCOCRAZE DOUBLE CRISP BISCUITS',
+          'INGREDIENTS: Refined Flour, High Fructose Corn Syrup, Trans Fats, Tartrazine E102, Allura Red E129, Sodium Metabisulfite E221.'
+        ],
+        ingredients: ['Refined Flour', 'High Fructose Corn Syrup', 'Tartrazine E102', 'Allura Red E129', 'Sodium Metabisulfite E221'],
+        harmfulAdditives: [
+          { code: 'E102', name: 'Tartrazine', description: 'Linked to hyperactivity and asthma flare-ups.' },
+          { code: 'E129', name: 'Allura Red AC', description: 'Petroleum-derived dye linked to sensitivity.' },
+          { code: 'E221', name: 'Sodium Metabisulfite', description: 'Chemical preservative with allergen hazard.' }
+        ],
+        nutritionalHighlights: [],
+        warnings: ['High Fructose Corn Syrup Spike', 'Trans Fats Hazard', 'Synthetic Dyes E102 & E129'],
+        recommendation: 'UNSAFE! Highly processed snack with artificial E-numbers and high glycemic index.',
+        boundingBox: { x: 14, y: 15, width: 72, height: 62 }
+      },
+      {
+        id: 'pf-3',
+        name: 'Unsweetened Almond Milk',
+        brand: 'Silk & Nut',
+        category: 'PACKED_FOOD',
+        safetyStatus: 'SAFE',
+        safetyScore: 93,
+        confidence: 0.96,
+        preservativesRisk: 'NONE',
+        sugarLevel: 'LOW',
+        sodiumLevel: 'LOW',
+        extractedText: [
+          'SILK & NUT UNSWEETENED ALMOND MILK',
+          'INGREDIENTS: Filtered Water, Organic Almonds (2.5%), Calcium Carbonate, Sea Salt.',
+          '0g ADDED SUGAR | LACTOSE FREE | VEGAN'
+        ],
+        ingredients: ['Filtered Water', 'Organic Almonds', 'Calcium Carbonate'],
+        harmfulAdditives: [],
+        nutritionalHighlights: ['Enriched with Calcium & Vitamin D', 'Keto Friendly'],
+        warnings: [],
+        recommendation: 'Clean plant-based dairy alternative. Safe for consumption.',
+        boundingBox: { x: 20, y: 20, width: 60, height: 55 }
+      },
+      {
+        id: 'pf-4',
+        name: 'Spicy Instant Ramen Block',
+        brand: 'FieryBowl',
+        category: 'PACKED_FOOD',
+        safetyStatus: 'UNSAFE',
+        safetyScore: 19,
+        confidence: 0.96,
+        preservativesRisk: 'HIGH',
+        sugarLevel: 'MODERATE',
+        sodiumLevel: 'HIGH',
+        extractedText: [
+          'FIERY BOWL EXTRA SPICY NOODLES',
+          'INGREDIENTS: Wheat Flour, Palm Oil, MSG E621, TBHQ E319, Salt (1980mg Sodium).'
+        ],
+        ingredients: ['Wheat Flour', 'Palm Oil', 'MSG E621', 'TBHQ E319'],
+        harmfulAdditives: [
+          { code: 'E319', name: 'TBHQ', description: 'Synthetic preservative linked to stomach irritation.' },
+          { code: 'E621', name: 'MSG', description: 'Excitotoxin flavor enhancer.' }
+        ],
+        nutritionalHighlights: [],
+        warnings: ['UNSAFE SODIUM: 1980mg per serving', 'TBHQ Synthetic Preservative'],
+        recommendation: 'UNSAFE! High sodium and synthetic preservative strain.',
+        boundingBox: { x: 16, y: 18, width: 68, height: 58 }
+      }
+    ];
+
+    // --- SAFETY BADGE COMPONENT ---
+    const SafetyBadge = ({ status, score, size = 'md' }) => {
+      const isSafe = status === 'SAFE';
+      
+      return (
+        <div className={`inline-flex items-center gap-2.5 rounded-full backdrop-blur-md border ${
+          isSafe
+            ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.4)]'
+            : 'bg-rose-950/90 border-rose-500/50 text-rose-300 shadow-[0_0_20px_rgba(239,68,68,0.4)]'
+        } ${size === 'lg' ? 'px-4 py-2' : 'px-3 py-1.5'}`}>
+          <div className={`flex items-center justify-center rounded-full ${size === 'lg' ? 'w-10 h-10' : 'w-7 h-7'} ${
+            isSafe ? 'bg-emerald-500 text-slate-950 shadow-[0_0_14px_#10b981]' : 'bg-rose-600 text-white shadow-[0_0_14px_#ef4444]'
+          }`}>
+            {isSafe ? (
+              /* GREEN CHECKMARK FOR SAFE (Correct Mark ✓) */
+              <svg className="w-5 h-5 stroke-[3.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            ) : (
+              /* RED CROSS FOR UNSAFE (Wrong Mark ✕) */
+              <svg className="w-5 h-5 stroke-[3.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+          </div>
+
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-xs uppercase tracking-wider">
+                {isSafe ? 'SAFE PRODUCT' : 'UNSAFE WARNING'}
+              </span>
+              {score !== undefined && (
+                <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${isSafe ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
+                  {score}%
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // --- SKIA AR OVERLAY ---
+    const SkiaAROverlay = ({ mode, isScanning, result, width, height }) => {
+      const canvasRef = useRef(null);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        let animId;
+        let scanY = 0;
+        let scanDir = 1;
+
+        const render = () => {
+          ctx.clearRect(0, 0, width, height);
+
+          // 1. HUD Reticle Brackets
+          const reticleW = Math.min(width * 0.75, 320);
+          const reticleH = Math.min(height * 0.55, 360);
+          const rx = (width - reticleW) / 2;
+          const ry = (height - reticleH) / 2;
+          const corner = 28;
+
+          const isSafe = result ? result.safetyStatus === 'SAFE' : true;
+          const theme = result ? (isSafe ? '#10b981' : '#ef4444') : (mode === 'VEG_FRUIT' ? '#06b6d4' : '#8b5cf6');
+
+          ctx.strokeStyle = theme;
+          ctx.lineWidth = 3.5;
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = theme;
+
+          // Corner Bracket Brushes
+          ctx.beginPath(); ctx.moveTo(rx, ry + corner); ctx.lineTo(rx, ry); ctx.lineTo(rx + corner, ry); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(rx + reticleW - corner, ry); ctx.lineTo(rx + reticleW, ry); ctx.lineTo(rx + reticleW, ry + corner); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(rx + reticleW, ry + reticleH - corner); ctx.lineTo(rx + reticleW, ry + reticleH); ctx.lineTo(rx + reticleW - corner, ry + reticleH); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(rx + corner, ry + reticleH); ctx.lineTo(rx, ry + reticleH); ctx.lineTo(rx, ry + reticleH - corner); ctx.stroke();
+
+          // 2. Animated Scanning Line
+          if (isScanning) {
+            scanY += 3.5 * scanDir;
+            if (scanY >= reticleH || scanY <= 0) scanDir *= -1;
+
+            const sy = ry + scanY;
+            const grad = ctx.createLinearGradient(rx, sy, rx + reticleW, sy);
+            grad.addColorStop(0, 'rgba(6,182,212,0)');
+            grad.addColorStop(0.5, theme);
+            grad.addColorStop(1, 'rgba(6,182,212,0)');
+
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = theme;
+            ctx.beginPath(); ctx.moveTo(rx, sy); ctx.lineTo(rx + reticleW, sy); ctx.stroke();
+
+            // Glow Fill behind scan line
+            ctx.fillStyle = mode === 'VEG_FRUIT' ? 'rgba(6,182,212,0.08)' : 'rgba(139,92,246,0.08)';
+            ctx.fillRect(rx, ry, reticleW, scanY);
+          }
+
+          // 3. AR Bounding Box & Product-Anchored Mark AFTER SCAN IS COMPLETE
+          if (result && !isScanning) {
+            const bx = (result.boundingBox.x / 100) * width;
+            const by = (result.boundingBox.y / 100) * height;
+            const bw = (result.boundingBox.width / 100) * width;
+            const bh = (result.boundingBox.height / 100) * height;
+
+            // 1. Product Bounding Box Border (Clean Vector Line - No Screen Blur Tint)
+            ctx.strokeStyle = isSafe ? '#10b981' : '#ef4444';
+            ctx.shadowColor = isSafe ? '#10b981' : '#ef4444';
+            ctx.shadowBlur = 15;
+            ctx.lineWidth = 3.5;
+            ctx.strokeRect(bx, by, bw, bh);
+
+            // Corner Tracking Dots on Product Bounding Box
+            ctx.fillStyle = isSafe ? '#34d399' : '#f87171';
+            const dotR = 4;
+            [[bx, by], [bx + bw, by], [bx, by + bh], [bx + bw, by + bh]].forEach(([dx, dy]) => {
+              ctx.beginPath(); ctx.arc(dx, dy, dotR, 0, Math.PI * 2); ctx.fill();
+            });
+
+            // 2. Large AR Safe/Unsafe Circle Mark DIRECTLY ON THE PRODUCT (Center of Bounding Box)
+            const cx = bx + bw / 2;
+            const cy = by + bh / 2;
+            const radius = Math.max(38, Math.min(bw, bh) * 0.28);
+
+            // Dark Backdrop Ring on Product
+            ctx.fillStyle = isSafe ? 'rgba(4, 30, 20, 0.94)' : 'rgba(40, 6, 10, 0.94)';
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius + 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Solid Glowing Fill Circle
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.fillStyle = isSafe ? '#10b981' : '#ef4444';
+            ctx.fill();
+
+            // Vector Icon (Green Correct Checkmark ✓ or Red Wrong Cross ✕)
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = Math.max(4.5, radius * 0.2);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            if (isSafe) {
+              // GREEN CORRECT CHECKMARK (✓)
+              ctx.beginPath();
+              ctx.moveTo(cx - radius * 0.42, cy + radius * 0.04);
+              ctx.lineTo(cx - radius * 0.08, cy + radius * 0.38);
+              ctx.lineTo(cx + radius * 0.42, cy - radius * 0.36);
+              ctx.stroke();
+            } else {
+              // RED WRONG CROSS (✕)
+              ctx.beginPath();
+              ctx.moveTo(cx - radius * 0.35, cy - radius * 0.35);
+              ctx.lineTo(cx + radius * 0.35, cy + radius * 0.35);
+              ctx.moveTo(cx + radius * 0.35, cy - radius * 0.35);
+              ctx.lineTo(cx - radius * 0.35, cy + radius * 0.35);
+              ctx.stroke();
+            }
+
+            // 3. Floating AR Product Info Badge Pill Above Bounding Box
+            const badgeW = Math.min(220, width - 20);
+            const badgeH = 44;
+            const bgx = Math.max(10, Math.min(width - badgeW - 10, cx - badgeW / 2));
+            const bgy = Math.max(10, by - badgeH - 12);
+
+            ctx.fillStyle = isSafe ? 'rgba(6, 40, 28, 0.94)' : 'rgba(50, 10, 15, 0.94)';
+            ctx.beginPath();
+            ctx.roundRect(bgx, bgy, badgeW, badgeH, 22);
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 12px "Space Grotesk", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(isSafe ? '✓ SAFE PRODUCT' : '✕ UNSAFE WARNING', cx, bgy + 18);
+
+            ctx.fillStyle = isSafe ? '#a7f3d0' : '#fecdd3';
+            ctx.font = '500 11px "Outfit", sans-serif';
+            const labelText = result.name.length > 22 ? result.name.substring(0, 20) + '...' : result.name;
+            ctx.fillText(`${labelText} • ${result.safetyScore}%`, cx, bgy + 34);
+            ctx.textAlign = 'left';
+          }
+
+          animId = requestAnimationFrame(render);
+        };
+
+        render();
+        return () => cancelAnimationFrame(animId);
+      }, [mode, isScanning, result, width, height]);
+
+      return <canvas ref={canvasRef} width={width} height={height} className="absolute inset-0 pointer-events-none z-10" />;
+    };
+
+    // --- MAIN CAMERA APP COMPONENT ---
+    const NutrilensApp = () => {
+      const videoRef = useRef(null);
+      const [mode, setMode] = useState('VEG_FRUIT');
+      const [cameraActive, setCameraActive] = useState(false);
+      const [isScanning, setIsScanning] = useState(false);
+      const [result, setResult] = useState(null);
+      const [scanIdx, setScanIdx] = useState(0);
+      const [showModal, setShowModal] = useState(false);
+      const [dims, setDims] = useState({ width: window.innerWidth, height: window.innerHeight });
+
+      useEffect(() => {
+        const handleResize = () => setDims({ width: window.innerWidth, height: window.innerHeight });
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+      }, []);
+
+      // Start Real Camera Stream
+      const startCamera = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+          });
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+          setCameraActive(true);
+        } catch (err) {
+          console.warn('Camera access prompt or hardware unattached:', err);
+          setCameraActive(false);
+        }
+      };
+
+      useEffect(() => {
+        startCamera();
+      }, []);
+
+      // STEP 1: SCAN FOODS -> STEP 2: CYCLE DATABASE & SHOW SAFE OR UNSAFE AR MARK
+      const startFoodScan = (forcedStatus) => {
+        if (isScanning) return;
+
+        setIsScanning(true);
+        setResult(null);
+        setShowModal(false);
+
+        // Scan for 1.5 seconds with live laser animation across camera feed
+        setTimeout(() => {
+          const dataset = mode === 'VEG_FRUIT' ? PRODUCE_DATASET : PACKED_FOOD_DATASET;
+          let selected;
+
+          if (forcedStatus === 'safe') {
+            selected = dataset.find(item => item.safetyStatus === 'SAFE');
+          } else if (forcedStatus === 'unsafe') {
+            selected = dataset.find(item => item.safetyStatus === 'UNSAFE');
+          } else {
+            // Cycle through database dataset items sequentially
+            selected = dataset[scanIdx % dataset.length];
+            setScanIdx(prev => prev + 1);
+          }
+
+          setIsScanning(false);
+          setResult(selected);
+          setShowModal(false);
+
+        }, 1500);
+      };
+
+      return (
+        <div className="w-screen h-screen bg-slate-950 flex flex-col justify-between relative overflow-hidden select-none">
+          
+          {/* Top Navigation Bar */}
+          <div className="z-30 px-4 py-3 bg-slate-950/90 border-b border-slate-800 backdrop-blur-md flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-xs">
+                AR
+              </div>
+              <h1 className="text-sm font-extrabold text-white">NUTRILENS <span className="text-cyan-400 text-xs">AR SCANNER</span></h1>
+            </div>
+
+            {/* Mode Switcher Tabs */}
+            <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+              <button
+                onClick={() => { setMode('VEG_FRUIT'); setResult(null); setShowModal(false); }}
+                className={`px-3 py-1.5 rounded-lg transition-all ${mode === 'VEG_FRUIT' ? 'bg-emerald-600 text-white shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'text-slate-400'}`}
+              >
+                Veg / Fruit
+              </button>
+              <button
+                onClick={() => { setMode('PACKED_FOOD'); setResult(null); setShowModal(false); }}
+                className={`px-3 py-1.5 rounded-lg transition-all ${mode === 'PACKED_FOOD' ? 'bg-violet-600 text-white shadow-[0_0_10px_rgba(139,92,246,0.4)]' : 'text-slate-400'}`}
+              >
+                Packed Food
+              </button>
+            </div>
+          </div>
+
+          {/* LIVE CAMERA VIEWPORT */}
+          <div className="relative flex-1 bg-slate-950 flex items-center justify-center overflow-hidden">
+            {/* Real WebCam Video Element */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover z-0"
+            />
+
+            {!cameraActive && (
+              <div className="z-0 text-center p-6 max-w-sm bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800">
+                <div className="w-16 h-16 mx-auto rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mb-3 text-cyan-400 font-bold text-xl animate-pulse">
+                  📷
+                </div>
+                <button
+                  onClick={startCamera}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all"
+                >
+                  Enable Device Camera Access
+                </button>
+              </div>
+            )}
+
+            {/* Skia 2D Canvas AR Overlay (Laser Scan + Bounding Box + Green Checkmark / Red Cross Badges) */}
+            <SkiaAROverlay mode={mode} isScanning={isScanning} result={result} width={dims.width} height={dims.height} />
+          </div>
+
+          {/* Bottom Controls Bar */}
+          <div className="z-30 p-5 bg-slate-950 border-t border-slate-800 flex items-center justify-center">
+            {/* Main Shutter Button */}
+            <button
+              onClick={() => startFoodScan()}
+              disabled={isScanning}
+              className={`w-20 h-20 rounded-full p-1 transition-all transform active:scale-95 ${
+                isScanning ? 'opacity-80 scale-95' : 'hover:scale-105'
+              } ${
+                mode === 'VEG_FRUIT'
+                  ? 'bg-gradient-to-tr from-emerald-500 to-cyan-400 shadow-[0_0_25px_rgba(16,185,129,0.5)]'
+                  : 'bg-gradient-to-tr from-violet-500 to-indigo-400 shadow-[0_0_25px_rgba(139,92,246,0.5)]'
+              }`}
+            >
+              <div className="w-full h-full rounded-full bg-slate-950 border-2 border-white flex flex-col items-center justify-center font-black text-white text-xs">
+                {isScanning ? (
+                  <span className="text-[10px] text-cyan-400 animate-pulse">SCANNING...</span>
+                ) : (
+                  <span className="tracking-wider text-xs font-black">SCAN</span>
+                )}
+              </div>
+            </button>
+          </div>
+
+          {/* Safety Result Analysis Sheet Modal */}
+          {showModal && result && (
+            <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-end justify-center p-0 sm:p-4">
+              <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl p-5 space-y-4 animate-in slide-in-from-bottom">
+                
+                <div className="flex items-center justify-between">
+                  <SafetyBadge status={result.safetyStatus} score={result.safetyScore} size="lg" />
+                  <button onClick={() => setShowModal(false)} className="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full font-bold">✕</button>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-black text-white">{result.name}</h2>
+                  {result.brand && <p className="text-xs text-slate-400">Brand: {result.brand}</p>}
+                </div>
+
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                  <span className="font-bold text-slate-400 uppercase tracking-wider text-[10px]">Safety Verdict:</span>
+                  <p className="font-medium text-slate-200 mt-0.5">{result.recommendation}</p>
+                </div>
+
+                {result.warnings && result.warnings.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-xs font-bold text-rose-400 uppercase">Health Warnings:</span>
+                    {result.warnings.map((w, i) => (
+                      <div key={i} className="text-xs bg-rose-950/40 border border-rose-800/40 text-rose-300 p-2 rounded-lg">
+                        ⚠️ {w}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {result.harmfulAdditives && result.harmfulAdditives.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-xs font-bold text-amber-400 uppercase">Harmful E-Numbers:</span>
+                    {result.harmfulAdditives.map((add, i) => (
+                      <div key={i} className="text-xs bg-amber-950/30 border border-amber-500/30 text-amber-200 p-2 rounded-lg">
+                        <strong>{add.code} - {add.name}:</strong> {add.description}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<NutrilensApp />);
+  </script>
+</body>
+</html>
