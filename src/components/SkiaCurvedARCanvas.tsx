@@ -13,10 +13,10 @@ import {
 
 /**
  * 1. SKIA DECAL STAMP (200 x 200 px)
- * Translucent AR Lens Decal:
- * - High-contrast vector checkmark (`✓`) / cross (`✖`) with dark contrast outline.
- * - Translucent tinted glassmorphism base that lets text, nutrition tables, and barcodes
- *   remain 100% readable directly behind the decal!
+ * Professional Translucent AR Inspection Lens:
+ * - Color-matched luminous translucent vector glyphs (Emerald `✓` / Ruby `✖`).
+ * - Sleek glassmorphism concentric rims with zero stray whisker lines.
+ * - 100% background legibility for nutrition labels, ingredients, and barcodes.
  * - 3D Projective Homography Matrix (Perspective + Cylindrical foreshortening).
  */
 export interface SkiaDecalStampProps {
@@ -48,9 +48,11 @@ export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
   // Horizontal cylindrical compression factor
   const cylScaleX = 1.0 - 0.12 * curveNorm;
 
-  // Translucent Theme Colors
+  // Luminous Translucent Theme Colors
   const accentColor = isSafe ? '#10b981' : '#ef4444';
-  const rimHighlight = isSafe ? '#6ee7b7' : '#fca5a5';
+  const glowColor = isSafe ? 'rgba(16, 185, 129, 0.38)' : 'rgba(239, 68, 68, 0.38)';
+  const glyphStrokeColor = isSafe ? 'rgba(52, 211, 153, 0.92)' : 'rgba(248, 113, 113, 0.92)';
+  const innerRimColor = isSafe ? 'rgba(110, 231, 183, 0.55)' : 'rgba(252, 165, 165, 0.55)';
 
   // 1. Curved Checkmark `✓` Path
   const checkPathStr = useMemo(() => {
@@ -86,18 +88,6 @@ export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
     return `M ${cx - ir} ${cy} A ${ir} ${ir} 0 1 0 ${cx + ir} ${cy} A ${ir} ${ir} 0 1 0 ${cx - ir} ${cy} Z`;
   }, [cx, cy, r]);
 
-  // 4. Conformal Surface Tangent Arcs (Visible on curved surfaces)
-  const surfaceTangentArcs = useMemo(() => {
-    if (curveNorm < 0.2) return [];
-    const arcH = r * 0.32 * curveNorm;
-    const l = cx - r * 1.35;
-    const right = cx + r * 1.35;
-    return [
-      `M ${l} ${cy - r * 0.55} Q ${cx} ${cy - r * 0.55 + arcH} ${right} ${cy - r * 0.55}`,
-      `M ${l} ${cy + r * 0.55} Q ${cx} ${cy + r * 0.55 + arcH} ${right} ${cy + r * 0.55}`,
-    ];
-  }, [cx, cy, r, curveNorm]);
-
   return (
     <Canvas style={{ width: 200, height: 200 }}>
       {/* 3D Projective Homography Group: Perspective keystoning + cylindrical scale */}
@@ -109,118 +99,106 @@ export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
           { scaleX: cylScaleX },
         ]}
       >
-        {/* 1. Subtle Perimeter Contact Shadow (Gentle depth without obscuring underlying text) */}
+        {/* 1. Soft Perimeter Contact Shadow (Subtle optical grounding) */}
         <Oval
-          rect={rect(cx - r * 1.02, cy - r * 0.96 + 4, r * 2.04, r * 1.92)}
-          color="rgba(0, 0, 0, 0.22)"
+          rect={rect(cx - r * 1.02, cy - r * 0.96 + 3, r * 2.04, r * 1.92)}
+          color="rgba(0, 0, 0, 0.18)"
           style="fill"
         />
 
-        {/* 2. Conformal Surface Contour Arcs */}
-        {surfaceTangentArcs.map((arcStr, i) => (
-          <Path
-            key={`tangent-${i}`}
-            path={arcStr}
-            color={accentColor}
-            style="stroke"
-            strokeWidth={1.8}
-            opacity={0.65}
-          />
-        ))}
-
-        {/* 3. Translucent AR Tinted Lens Fill (Lets underlying text and graphics remain 100% legible!) */}
+        {/* 2. Translucent Glassmorphism AR Lens Fill */}
         <Path path={outerRimPath} style="fill">
           <RadialGradient
             c={vec(cx - r * 0.2, cy - r * 0.2)}
             r={r * 1.25}
             colors={[
-              isSafe ? 'rgba(52, 211, 153, 0.22)' : 'rgba(248, 113, 113, 0.22)',
-              isSafe ? 'rgba(16, 185, 129, 0.34)' : 'rgba(239, 68, 68, 0.34)',
-              isSafe ? 'rgba(5, 150, 105, 0.44)' : 'rgba(220, 38, 38, 0.44)',
+              isSafe ? 'rgba(52, 211, 153, 0.16)' : 'rgba(248, 113, 113, 0.16)',
+              isSafe ? 'rgba(16, 185, 129, 0.26)' : 'rgba(239, 68, 68, 0.26)',
+              isSafe ? 'rgba(5, 150, 105, 0.38)' : 'rgba(220, 38, 38, 0.38)',
             ]}
           />
         </Path>
 
-        {/* 4. Outer Certification Rims (Crisp, High-Contrast Boundary) */}
+        {/* 3. Dual Concentric Lens Rims */}
         <Path
           path={outerRimPath}
           color={accentColor}
           style="stroke"
-          strokeWidth={2.8}
-          opacity={0.92}
+          strokeWidth={2.2}
+          opacity={0.88}
         />
         <Path
           path={innerRimPath}
-          color="rgba(255, 255, 255, 0.72)"
+          color={innerRimColor}
           style="stroke"
-          strokeWidth={1.2}
+          strokeWidth={1.0}
         />
 
-        {/* 5. Subtle Top Edge Bevel Gleam */}
+        {/* 4. Subtle Top Edge Bevel Gleam */}
         <Oval
-          rect={rect(cx - r * 0.7, cy - r * 0.88, r * 1.4, r * 0.35)}
+          rect={rect(cx - r * 0.65, cy - r * 0.86, r * 1.3, r * 0.32)}
           style="fill"
         >
           <RadialGradient
             c={vec(cx, cy - r * 0.85)}
             r={r * 0.65}
-            colors={['rgba(255, 255, 255, 0.30)', 'rgba(255, 255, 255, 0)']}
+            colors={['rgba(255, 255, 255, 0.24)', 'rgba(255, 255, 255, 0)']}
           />
         </Oval>
 
-        {/* 6. High-Contrast Vector Sign: Dark Contrast Outline + Pure White Inlay */}
-        {/* Stroke-only vector leaves >85% of the interior area clear for reading text! */}
+        {/* 5. Professional Translucent Vector Signs (Emerald `✓` / Ruby `✖`) */}
+        {/* Color-matched translucent glow + crisp luminous core */}
         {isSafe ? (
           <Group>
-            {/* Dark Contrast Outline (Ensures visibility on bright white paper) */}
+            {/* Soft Ambient Glow */}
             <Path
               path={checkPathStr}
-              color="rgba(0, 0, 0, 0.75)"
+              color={glowColor}
               style="stroke"
-              strokeWidth={6.5}
+              strokeWidth={6.2}
               strokeCap="round"
               strokeJoin="round"
             />
-            {/* Pure White Inlay */}
+            {/* Luminous Translucent Core Stroke */}
             <Path
               path={checkPathStr}
-              color="#ffffff"
+              color={glyphStrokeColor}
               style="stroke"
-              strokeWidth={4.8}
+              strokeWidth={3.6}
               strokeCap="round"
               strokeJoin="round"
             />
           </Group>
         ) : (
           <Group>
-            {/* Dark Contrast Outline (Ensures visibility on bright white paper) */}
+            {/* Soft Ambient Glow */}
             <Path
               path={crossPaths.arm1}
-              color="rgba(0, 0, 0, 0.75)"
+              color={glowColor}
               style="stroke"
-              strokeWidth={6.5}
+              strokeWidth={6.2}
               strokeCap="round"
             />
             <Path
               path={crossPaths.arm2}
-              color="rgba(0, 0, 0, 0.75)"
+              color={glowColor}
               style="stroke"
-              strokeWidth={6.5}
+              strokeWidth={6.2}
               strokeCap="round"
             />
-            {/* Pure White Inlay */}
+            {/* Luminous Translucent Core Stroke */}
             <Path
               path={crossPaths.arm1}
-              color="#ffffff"
+              color={glyphStrokeColor}
               style="stroke"
-              strokeWidth={4.8}
+              strokeWidth={3.6}
               strokeCap="round"
             />
             <Path
               path={crossPaths.arm2}
-              color="#ffffff"
+              color={glyphStrokeColor}
               style="stroke"
-              strokeWidth={4.8}
+              strokeWidth={3.6}
               strokeCap="round"
             />
           </Group>
