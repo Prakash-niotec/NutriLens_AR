@@ -50,10 +50,11 @@ export function useARTracker() {
   const viewportSizeRef = useRef<{ width: number; height: number }>({ width: 390, height: 750 });
 
   // 1-Euro Filters for X, Y, and Roll (Casiez et al. 2012)
-  // minCutoff = 1.0 Hz (kills rest jitter < 0.4px), beta = 0.08 (kills motion lag < 25ms)
-  const xFilterRef = useRef(new OneEuroFilter(1.0, 0.08, 1.0)).current;
-  const yFilterRef = useRef(new OneEuroFilter(1.0, 0.08, 1.0)).current;
-  const rollFilterRef = useRef(new OneEuroFilter(1.2, 0.07, 1.0)).current;
+  // minCutoff = 1.0 Hz (kills rest jitter < 0.4px)
+  // beta = 0.25 (responsive dynamic cutoff: zero lag during camera pans & turns)
+  const xFilterRef = useRef(new OneEuroFilter(1.0, 0.25, 1.0)).current;
+  const yFilterRef = useRef(new OneEuroFilter(1.0, 0.25, 1.0)).current;
+  const rollFilterRef = useRef(new OneEuroFilter(1.2, 0.20, 1.0)).current;
 
   // Inertial sensor references for world-space anchoring
   const currentRotationRef = useRef<{ alpha: number; beta: number; gamma: number }>({
@@ -124,12 +125,12 @@ export function useARTracker() {
                 const rawTargetY = Math.sin(dPitch) * (viewportSizeRef.current.height * 0.90);
                 const rawTargetRollDeg = -dRoll * (180 / Math.PI);
 
-                // 3. Safety Clamping: Sticker can NEVER fly off-screen or hit the bezel!
-                const maxDx = viewportSizeRef.current.width * 0.38;
-                const maxDy = viewportSizeRef.current.height * 0.38;
+                // 3. Safety Clamping: Smooth tracking across 92% of the viewport width & height
+                const maxDx = viewportSizeRef.current.width * 0.46;
+                const maxDy = viewportSizeRef.current.height * 0.46;
                 const clampedX = Math.max(-maxDx, Math.min(maxDx, rawTargetX));
                 const clampedY = Math.max(-maxDy, Math.min(maxDy, rawTargetY));
-                const clampedRoll = Math.max(-50, Math.min(50, rawTargetRollDeg));
+                const clampedRoll = Math.max(-60, Math.min(60, rawTargetRollDeg));
 
                 // 4. Stable 1-Euro Filter (Zero jitter at rest, zero lag during motion)
                 const filteredX = xFilterRef.filter(clampedX, nowMs);

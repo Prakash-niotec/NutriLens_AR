@@ -40,8 +40,9 @@ export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
   const cx = 100;
   const cy = 100;
 
-  // Auto-sized radius matching framed bounding box (clamped safely inside canvas)
-  const r = Math.max(26, Math.min(78, targetRadius * scaleMultiplier));
+  // Proportional radius directly matching the framed reticle (clamped safely inside canvas)
+  const effectiveRadius = targetRadius ?? (48 * scaleMultiplier);
+  const r = Math.max(32, Math.min(84, effectiveRadius));
 
   // 3D Perspective Homography Parameters:
   const pitchAngle = Math.max(-0.65, Math.min(0.65, anchorPitch));
