@@ -12,37 +12,39 @@ import {
 } from '@shopify/react-native-skia';
 
 /**
- * 1. SKIA DECAL STAMP (170 x 170 px)
+ * 1. SKIA DECAL STAMP (200 x 200 px)
  * 100% Solid, High-Contrast Physical Inspection Stamp.
- * Rendered on GPU with 3D Projective Homography Matrix (Perspective + Foreshortening).
+ * Auto-sizes proportionally to the framed item, with 3D Projective Homography.
  */
 export interface SkiaDecalStampProps {
   isSafe: boolean;
   curvaturePercent: number; // 0 to 100
+  targetRadius?: number; // Base radius directly matching framed reticle
   scaleMultiplier?: number; // 0.5 to 2.0 (default 1.0)
-  relativePitch?: number; // Radians of pitch tilt for 3D projective homography
+  anchorPitch?: number; // Radians of pitch tilt for 3D projective homography
 }
 
 export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
   isSafe,
   curvaturePercent,
+  targetRadius = 46,
   scaleMultiplier = 1.0,
-  relativePitch = 0.35,
+  anchorPitch = 0.42,
 }) => {
   const curveNorm = Math.min(1, Math.max(0, curvaturePercent / 100));
 
-  // Canvas dimensions: 170x170, centered at (85, 85)
-  const cx = 85;
-  const cy = 85;
+  // Canvas dimensions: 200x200, centered at (100, 100)
+  const cx = 100;
+  const cy = 100;
 
-  // Base decal radius scaled dynamically
-  const r = 44 * Math.max(0.5, Math.min(1.8, scaleMultiplier));
+  // Auto-sized radius matching framed bounding box (clamped safely inside canvas)
+  const r = Math.max(26, Math.min(78, targetRadius * scaleMultiplier));
 
   // 3D Perspective Homography Parameters:
   // Clamped pitch tilt in radians (avoids singularity / extreme inversion)
-  const pitchAngle = Math.max(-0.72, Math.min(0.72, relativePitch));
+  const pitchAngle = Math.max(-0.65, Math.min(0.65, anchorPitch));
   // Horizontal cylindrical compression factor
-  const cylScaleX = 1.0 - 0.14 * curveNorm;
+  const cylScaleX = 1.0 - 0.12 * curveNorm;
 
   // Solid, 100% Opaque Colors (Reduced transparency for high contrast & punchy look)
   const baseColor = isSafe ? '#10b981' : '#ef4444';
@@ -97,12 +99,12 @@ export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
   }, [cx, cy, r, curveNorm]);
 
   return (
-    <Canvas style={{ width: 170, height: 170 }}>
+    <Canvas style={{ width: 200, height: 200 }}>
       {/* 3D Projective Homography Group: Perspective keystoning + cylindrical scale */}
       <Group
         origin={vec(cx, cy)}
         transform={[
-          { perspective: 420 },
+          { perspective: 450 },
           { rotateX: pitchAngle },
           { scaleX: cylScaleX },
         ]}

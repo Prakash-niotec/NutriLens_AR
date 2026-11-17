@@ -348,10 +348,10 @@ export default function App() {
             style={[
               {
                 position: 'absolute',
-                left: targetCenterX - 85,
-                top: targetCenterY - 85,
-                width: 170,
-                height: 170,
+                left: targetCenterX - 100,
+                top: targetCenterY - 100,
+                width: 200,
+                height: 200,
                 transform: [
                   { translateX: panAnim.x },
                   { translateY: panAnim.y },
@@ -376,7 +376,8 @@ export default function App() {
                 isSafe={isSafe}
                 curvaturePercent={anchorState.curvaturePercent}
                 scaleMultiplier={anchorState.scaleMultiplier}
-                relativePitch={anchorState.relativePitch}
+                targetRadius={(reticleWidth / 2) * 0.72}
+                anchorPitch={anchorState.anchorPitch}
               />
             </TouchableOpacity>
           </Animated.View>
@@ -389,7 +390,7 @@ export default function App() {
               {
                 position: 'absolute',
                 left: Math.max(16, targetCenterX - 125),
-                top: Math.max(12, targetCenterY - 85 - 76),
+                top: Math.max(12, targetCenterY - 100 - 72),
                 width: 250,
                 transform: [
                   { translateX: panAnim.x },

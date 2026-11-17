@@ -5,18 +5,16 @@ import { FoodDetectionResult, SurfaceGeometry } from '../types';
 import { OneEuroFilter } from '../utils/oneEuroFilter';
 
 export type SizePreset = 'SMALL' | 'MEDIUM' | 'LARGE';
-export type TrackingStatus = 'SEARCHING' | 'LOCKED' | 'DEGRADED';
 
 export interface ARAnchorState {
   target: FoodDetectionResult | null;
   isLocked: boolean;
-  trackingStatus: TrackingStatus;
   surfaceGeometry: SurfaceGeometry;
   curvaturePercent: number; // 0 (Flat) to 100 (Deep Curve)
   sizePreset: SizePreset;
   scaleMultiplier: number; // 0.5 to 2.0 (e.g. 1.0 = 100%)
   centerConfirmed: { x: number; y: number };
-  relativePitch: number; // Radians of pitch difference for 3D perspective foreshortening
+  anchorPitch: number; // Pitch angle at the moment of lock
 }
 
 export const SIZE_PRESETS: Record<SizePreset, { scale: number; widthPct: number; heightPct: number; label: string }> = {
@@ -36,13 +34,12 @@ export function useARTracker() {
   const [anchorState, setAnchorState] = useState<ARAnchorState>({
     target: null,
     isLocked: false,
-    trackingStatus: 'SEARCHING',
     surfaceGeometry: 'SPHERICAL',
     curvaturePercent: 75,
     sizePreset: 'SMALL',
     scaleMultiplier: 0.85,
     centerConfirmed: { x: 50, y: 50 },
-    relativePitch: 0.45,
+    anchorPitch: 0.45,
   });
 
   // Native animated values for 60-120 FPS zero-lag hardware translation
@@ -53,10 +50,10 @@ export function useARTracker() {
   const viewportSizeRef = useRef<{ width: number; height: number }>({ width: 390, height: 750 });
 
   // 1-Euro Filters for X, Y, and Roll (Casiez et al. 2012)
-  // minCutoff = 1.0 Hz (kills rest jitter < 0.4px), beta = 0.09 (kills motion lag < 25ms)
-  const xFilterRef = useRef(new OneEuroFilter(1.0, 0.09, 1.0)).current;
-  const yFilterRef = useRef(new OneEuroFilter(1.0, 0.09, 1.0)).current;
-  const rollFilterRef = useRef(new OneEuroFilter(1.2, 0.08, 1.0)).current;
+  // minCutoff = 1.0 Hz (kills rest jitter < 0.4px), beta = 0.08 (kills motion lag < 25ms)
+  const xFilterRef = useRef(new OneEuroFilter(1.0, 0.08, 1.0)).current;
+  const yFilterRef = useRef(new OneEuroFilter(1.0, 0.08, 1.0)).current;
+  const rollFilterRef = useRef(new OneEuroFilter(1.2, 0.07, 1.0)).current;
 
   // Inertial sensor references for world-space anchoring
   const currentRotationRef = useRef<{ alpha: number; beta: number; gamma: number }>({
@@ -110,41 +107,34 @@ export function useARTracker() {
               const { alpha, beta, gamma } = data.rotation;
               currentRotationRef.current = { alpha, beta, gamma };
 
-              // If locked onto an object, compensate for camera movement to keep the decal anchored in world space
+              // If locked onto an object, compensate for camera movement using clean fused orientation
               if (anchorRotationRef.current) {
                 const anchor = anchorRotationRef.current;
                 const nowMs = Date.now();
 
-                // 1. Late-Latching: Forward-extrapolate rotation by 16ms to match upcoming display V-SYNC
-                const tau = 0.016; // 16 ms forward prediction horizon
-                let predAlpha = alpha;
-                let predBeta = beta;
-                let predGamma = gamma;
+                // 1. Angular differences from the locked reference moment
+                const dYaw = normalizeAngle(alpha - anchor.alpha);
+                const dPitch = beta - anchor.beta;
+                const dRoll = gamma - anchor.gamma;
 
-                if (data.rotationRate) {
-                  const { alpha: dAlphaRate, beta: dBetaRate, gamma: dGammaRate } = data.rotationRate;
-                  // Clamp angular velocity prediction to avoid overshooting on sudden stops
-                  predAlpha += Math.max(-0.09, Math.min(0.09, (dAlphaRate || 0) * tau));
-                  predBeta += Math.max(-0.09, Math.min(0.09, (dBetaRate || 0) * tau));
-                  predGamma += Math.max(-0.09, Math.min(0.09, (dGammaRate || 0) * tau));
-                }
-
-                // 2. Angular difference from the locked reference moment
-                const dYaw = normalizeAngle(predAlpha - anchor.alpha);
-                const dPitch = predBeta - anchor.beta;
-                const dRoll = predGamma - anchor.gamma;
-
-                // Calibrated optical projection for portrait mode:
-                // Horizontal FOV in portrait is ~42 deg -> factor = 1.35 * viewportWidth
-                // Vertical FOV in portrait is ~62 deg -> factor = 0.95 * viewportHeight
-                const rawTargetX = -Math.sin(dYaw) * (viewportSizeRef.current.width * 1.35);
-                const rawTargetY = Math.sin(dPitch) * (viewportSizeRef.current.height * 0.95);
+                // 2. Calibrated optical projection for portrait camera:
+                // Camera horizontal FOV ~42 deg -> factor = 1.15 * viewportWidth
+                // Camera vertical FOV ~62 deg -> factor = 0.90 * viewportHeight
+                const rawTargetX = -Math.sin(dYaw) * (viewportSizeRef.current.width * 1.15);
+                const rawTargetY = Math.sin(dPitch) * (viewportSizeRef.current.height * 0.90);
                 const rawTargetRollDeg = -dRoll * (180 / Math.PI);
 
-                // 3. Mathematical 1-Euro Filter (Zero jitter at rest, zero lag during motion)
-                const filteredX = xFilterRef.filter(rawTargetX, nowMs);
-                const filteredY = yFilterRef.filter(rawTargetY, nowMs);
-                const filteredRoll = rollFilterRef.filter(rawTargetRollDeg, nowMs);
+                // 3. Safety Clamping: Sticker can NEVER fly off-screen or hit the bezel!
+                const maxDx = viewportSizeRef.current.width * 0.38;
+                const maxDy = viewportSizeRef.current.height * 0.38;
+                const clampedX = Math.max(-maxDx, Math.min(maxDx, rawTargetX));
+                const clampedY = Math.max(-maxDy, Math.min(maxDy, rawTargetY));
+                const clampedRoll = Math.max(-50, Math.min(50, rawTargetRollDeg));
+
+                // 4. Stable 1-Euro Filter (Zero jitter at rest, zero lag during motion)
+                const filteredX = xFilterRef.filter(clampedX, nowMs);
+                const filteredY = yFilterRef.filter(clampedY, nowMs);
+                const filteredRoll = rollFilterRef.filter(clampedRoll, nowMs);
 
                 // Update native driver directly without React state re-rendering (Zero-lag 60-120 FPS!)
                 panAnim.setValue({
@@ -152,14 +142,6 @@ export function useARTracker() {
                   y: filteredY,
                 });
                 rollAnim.setValue(filteredRoll);
-
-                // Keep relative pitch updated for 3D perspective homography (low frequency)
-                if (Math.abs(dPitch - anchorState.relativePitch) > 0.08) {
-                  setAnchorState((prev) => ({
-                    ...prev,
-                    relativePitch: dPitch,
-                  }));
-                }
               }
             }
           });
@@ -174,7 +156,7 @@ export function useARTracker() {
     return () => {
       if (sub) sub.remove();
     };
-  }, [panAnim, rollAnim, anchorState.relativePitch, xFilterRef, yFilterRef, rollFilterRef]);
+  }, [panAnim, rollAnim, xFilterRef, yFilterRef, rollFilterRef]);
 
   /**
    * Set Object Size Preset (Small / Medium / Large).
@@ -244,9 +226,9 @@ export function useARTracker() {
     (detected: FoodDetectionResult) => {
       // Capture current device 3D orientation as the reference anchor
       anchorRotationRef.current = { ...currentRotationRef.current };
-      xFilterRef.reset();
-      yFilterRef.reset();
-      rollFilterRef.reset();
+      xFilterRef.reset(0);
+      yFilterRef.reset(0);
+      rollFilterRef.reset(0);
       panAnim.setValue({ x: 0, y: 0 });
       rollAnim.setValue(0);
 
@@ -255,14 +237,17 @@ export function useARTracker() {
       if (curvaturePercent < 15) geom = 'PLANAR';
       else if (curvaturePercent <= 65) geom = 'CYLINDRICAL';
 
+      // Pitch angle at lock moment (for 3D perspective foreshortening)
+      const currentPitch = currentRotationRef.current.beta;
+      const safePitch = Math.max(0.2, Math.min(0.65, Math.abs(currentPitch)));
+
       setAnchorState((prev) => ({
         ...prev,
         target: detected,
         isLocked: true,
-        trackingStatus: 'LOCKED',
         surfaceGeometry: geom,
         centerConfirmed: { x: 50, y: 50 },
-        relativePitch: 0.45,
+        anchorPitch: safePitch,
       }));
     },
     [anchorState, panAnim, rollAnim, xFilterRef, yFilterRef, rollFilterRef]
@@ -273,9 +258,9 @@ export function useARTracker() {
    */
   const clearAnchor = useCallback(() => {
     anchorRotationRef.current = null;
-    xFilterRef.reset();
-    yFilterRef.reset();
-    rollFilterRef.reset();
+    xFilterRef.reset(0);
+    yFilterRef.reset(0);
+    rollFilterRef.reset(0);
     panAnim.setValue({ x: 0, y: 0 });
     rollAnim.setValue(0);
 
@@ -283,9 +268,8 @@ export function useARTracker() {
       ...prev,
       target: null,
       isLocked: false,
-      trackingStatus: 'SEARCHING',
       centerConfirmed: { x: 50, y: 50 },
-      relativePitch: 0.45,
+      anchorPitch: 0.45,
     }));
   }, [panAnim, rollAnim, xFilterRef, yFilterRef, rollFilterRef]);
 

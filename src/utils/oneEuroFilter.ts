@@ -10,7 +10,7 @@ class LowPassFilter {
   private s: number | null = null;
 
   filter(value: number, alpha: number): number {
-    if (this.s === null) {
+    if (this.s === null || isNaN(this.s)) {
       this.s = value;
       this.y = value;
       return value;
@@ -21,16 +21,21 @@ class LowPassFilter {
   }
 
   hasLast(): boolean {
-    return this.y !== null;
+    return this.y !== null && !isNaN(this.y);
   }
 
   last(): number {
     return this.y ?? 0;
   }
 
-  reset() {
-    this.y = null;
-    this.s = null;
+  reset(initialValue?: number) {
+    if (initialValue !== undefined) {
+      this.y = initialValue;
+      this.s = initialValue;
+    } else {
+      this.y = null;
+      this.s = null;
+    }
   }
 }
 
@@ -59,16 +64,20 @@ export class OneEuroFilter {
   }
 
   filter(x: number, timestampMs: number): number {
+    if (isNaN(x)) return 0;
+
     if (this.lastTime === null) {
       this.lastTime = timestampMs;
       return this.xFilter.filter(x, 1.0);
     }
 
-    const dt = Math.max(0.001, (timestampMs - this.lastTime) / 1000.0);
+    // Clamp dt to a safe 10ms - 40ms window to prevent velocity spikes from sensor jitter
+    const rawDt = (timestampMs - this.lastTime) / 1000.0;
+    const dt = Math.max(0.010, Math.min(0.040, rawDt));
     this.lastTime = timestampMs;
 
-    // Filter the derivative (velocity)
-    const prevX = this.xFilter.last();
+    // Filter derivative (velocity)
+    const prevX = this.xFilter.hasLast() ? this.xFilter.last() : x;
     const dx = (x - prevX) / dt;
     const edx = this.dxFilter.filter(dx, this.alpha(this.dCutoff, dt));
 
@@ -79,9 +88,9 @@ export class OneEuroFilter {
     return this.xFilter.filter(x, this.alpha(cutoff, dt));
   }
 
-  reset() {
-    this.xFilter.reset();
-    this.dxFilter.reset();
+  reset(initialValue = 0) {
+    this.xFilter.reset(initialValue);
+    this.dxFilter.reset(0);
     this.lastTime = null;
   }
 }
