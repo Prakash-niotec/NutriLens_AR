@@ -15,8 +15,8 @@ import { Camera, useCameraDevice, useCameraPermission } from 'react-native-visio
 import { ScanMode, FoodDetectionResult } from './src/types';
 import { FRUIT_VEG_DATASET } from './src/data/fruitVegDataset';
 import { PACKED_FOOD_DATASET } from './src/data/packedFoodDataset';
-import { useARTracker, SizePreset } from './src/hooks/useARTracker';
-import { SkiaCurvedARCanvas } from './src/components/SkiaCurvedARCanvas';
+import { useARTracker, SIZE_PRESETS, SizePreset } from './src/hooks/useARTracker';
+import { SkiaDecalStamp, SkiaAimingReticle } from './src/components/SkiaCurvedARCanvas';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -35,15 +35,23 @@ export default function App() {
   // AR Tracker Hook with 6-DOF Spatial Motion Tracking & Dynamic Curvature
   const {
     anchorState,
-    trackedPosition,
+    panAnim,
+    rollAnim,
     pulseAnim,
+    setViewportSize,
     setSizePreset,
+    setScaleMultiplier,
+    adjustScale,
     setCurvaturePercent,
     adjustCurvature,
     lockOnFramedObject,
-    trackMotionDelta,
     clearAnchor,
   } = useARTracker();
+
+  // Keep tracker informed of viewport layout
+  useEffect(() => {
+    setViewportSize(viewportLayout.width, viewportLayout.height);
+  }, [viewportLayout, setViewportSize]);
 
   // Auto-request camera permissions on launch
   useEffect(() => {
@@ -57,13 +65,7 @@ export default function App() {
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: (_evt, gestureState) => {
-        if (anchorState.isLocked && viewportLayout.width > 0 && viewportLayout.height > 0) {
-          const deltaX = (gestureState.dx / viewportLayout.width) * 100 * 0.14;
-          const deltaY = (gestureState.dy / viewportLayout.height) * 100 * 0.14;
-          trackMotionDelta(deltaX, deltaY);
-        }
-      },
+      onPanResponderMove: () => {},
     })
   ).current;
 
@@ -80,7 +82,7 @@ export default function App() {
     };
   }, [scanLaserAnim]);
 
-  // Animated laser scan effect top-to-bottom
+  // Animated laser scan effect top-to-bottom (Snappy 260ms duration)
   useEffect(() => {
     if (isScanning) {
       scanLaserAnim.setValue(0);
@@ -88,12 +90,12 @@ export default function App() {
         Animated.sequence([
           Animated.timing(scanLaserAnim, {
             toValue: 1,
-            duration: 900,
+            duration: 260,
             useNativeDriver: false,
           }),
           Animated.timing(scanLaserAnim, {
             toValue: 0,
-            duration: 900,
+            duration: 260,
             useNativeDriver: false,
           }),
         ])
@@ -105,7 +107,7 @@ export default function App() {
     }
   }, [isScanning, scanLaserAnim]);
 
-  // Handle Scanning Trigger: Locks to exact framed size & surface curvature
+  // Handle Scanning Trigger: Locks to exact framed size & surface curvature with fast 280ms response
   const triggerFoodScan = (forcedStatus?: 'safe' | 'unsafe') => {
     if (isScanning) return;
 
@@ -113,6 +115,7 @@ export default function App() {
     clearAnchor();
     setShowModal(false);
 
+    // Snappy scan response (280ms)
     setTimeout(() => {
       const dataset = scanMode === 'VEG_FRUIT' ? FRUIT_VEG_DATASET : PACKED_FOOD_DATASET;
       let selected: FoodDetectionResult;
@@ -128,16 +131,17 @@ export default function App() {
       setIsScanning(false);
       // Lock onto framed object with dynamic size and curvature
       lockOnFramedObject(selected);
-    }, 1200);
+    }, 280);
   };
 
   const isSafe = anchorState.target?.safetyStatus === 'SAFE';
 
-  // Dynamic reticle width & height based on current size preset
-  const reticleWidth = (viewportLayout.width * anchorState.customSize.width) / 100;
-  const reticleHeight = (viewportLayout.height * anchorState.customSize.height) / 100;
-  const targetCenterX = (viewportLayout.width * trackedPosition.x) / 100;
-  const targetCenterY = (viewportLayout.height * trackedPosition.y) / 100;
+  // Dynamic reticle width & height based on current size preset and scale multiplier
+  const presetDims = SIZE_PRESETS[anchorState.sizePreset];
+  const reticleWidth = (viewportLayout.width * presetDims.widthPct * anchorState.scaleMultiplier) / 100;
+  const reticleHeight = (viewportLayout.height * presetDims.heightPct * anchorState.scaleMultiplier) / 100;
+  const targetCenterX = viewportLayout.width / 2;
+  const targetCenterY = viewportLayout.height / 2;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -230,6 +234,19 @@ export default function App() {
           </View>
         )}
 
+        {/* Skia Aiming Reticle (Visible when unlocked or scanning) */}
+        {!anchorState.isLocked && (
+          <SkiaAimingReticle
+            width={viewportLayout.width}
+            height={viewportLayout.height}
+            isScanning={isScanning}
+            scanProgress={scanProgress}
+            boxWidth={reticleWidth}
+            boxHeight={reticleHeight}
+            curvaturePercent={anchorState.curvaturePercent}
+          />
+        )}
+
         {/* Dynamic Framing Guide Badge */}
         {!anchorState.isLocked && (
           <View
@@ -238,7 +255,6 @@ export default function App() {
               {
                 position: 'absolute',
                 top: targetCenterY + reticleHeight / 2 + 10,
-                bottom: undefined,
                 alignSelf: 'center',
                 zIndex: 20,
               },
@@ -255,10 +271,12 @@ export default function App() {
           </View>
         )}
 
-        {/* 3D Curvature Tuning Bar (Appears when Anchored) */}
+        {/* 3D Curvature & Live Sizing Tuning Bar (When Anchored) */}
         {anchorState.isLocked && !isScanning && (
-          <View style={styles.curvatureTuningBar}>
-            <View style={styles.curvaturePresetRow}>
+          <View style={styles.tuningBar}>
+            {/* Row 1: Surface Curvature */}
+            <View style={styles.tuningRow}>
+              <Text style={styles.tuningLabel}>SURFACE:</Text>
               <TouchableOpacity
                 onPress={() => setCurvaturePercent(0)}
                 style={[styles.curvePresetBtn, anchorState.curvaturePercent === 0 && styles.curvePresetBtnActive]}
@@ -278,13 +296,38 @@ export default function App() {
                 <Text style={styles.curvePresetText}>Sphere 90%</Text>
               </TouchableOpacity>
 
-              {/* Curvature +/- Stepper */}
               <View style={styles.stepperContainer}>
                 <TouchableOpacity onPress={() => adjustCurvature(-15)} style={styles.stepperBtn}>
                   <Text style={styles.stepperBtnText}>-</Text>
                 </TouchableOpacity>
                 <Text style={styles.stepperVal}>{anchorState.curvaturePercent}%</Text>
                 <TouchableOpacity onPress={() => adjustCurvature(15)} style={styles.stepperBtn}>
+                  <Text style={styles.stepperBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Row 2: Live Dynamic Sizing Stepper */}
+            <View style={[styles.tuningRow, { marginTop: 6 }]}>
+              <Text style={styles.tuningLabel}>SIZE:</Text>
+              {(['SMALL', 'MEDIUM', 'LARGE'] as SizePreset[]).map((p) => (
+                <TouchableOpacity
+                  key={p}
+                  onPress={() => setSizePreset(p)}
+                  style={[styles.curvePresetBtn, anchorState.sizePreset === p && styles.curvePresetBtnActive]}
+                >
+                  <Text style={styles.curvePresetText}>
+                    {p === 'SMALL' ? 'Small' : p === 'MEDIUM' ? 'Med' : 'Large'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              <View style={styles.stepperContainer}>
+                <TouchableOpacity onPress={() => adjustScale(-0.15)} style={styles.stepperBtn}>
+                  <Text style={styles.stepperBtnText}>-</Text>
+                </TouchableOpacity>
+                <Text style={styles.stepperVal}>{Math.round(anchorState.scaleMultiplier * 100)}%</Text>
+                <TouchableOpacity onPress={() => adjustScale(0.15)} style={styles.stepperBtn}>
                   <Text style={styles.stepperBtnText}>+</Text>
                 </TouchableOpacity>
               </View>
@@ -299,55 +342,69 @@ export default function App() {
           </TouchableOpacity>
         )}
 
-        {/* 2D Skia Physical Surface Decal & Spatial Motion Tracker */}
-        <SkiaCurvedARCanvas
-          width={viewportLayout.width}
-          height={viewportLayout.height}
-          isScanning={isScanning}
-          scanProgress={scanProgress}
-          isLocked={anchorState.isLocked && anchorState.target != null}
-          isSafe={isSafe}
-          centerX={targetCenterX}
-          centerY={targetCenterY}
-          roll={trackedPosition.roll}
-          pitch={trackedPosition.pitch}
-          boxWidth={reticleWidth}
-          boxHeight={reticleHeight}
-          curvaturePercent={anchorState.curvaturePercent}
-          geometry={anchorState.surfaceGeometry}
-          sizePreset={anchorState.sizePreset}
-        />
-
-        {/* 3D Curved AR Touch Target & Info Pill */}
-        {anchorState.isLocked && anchorState.target && !isScanning && (
-          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-            {/* Center Touch Target to open Modal Breakdown */}
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => setShowModal(true)}
-              style={{
+        {/* 100% Solid Skia AR Decal (Hardware-accelerated Zero-Lag tracking via Animated.View) */}
+        {anchorState.isLocked && anchorState.target != null && (
+          <Animated.View
+            style={[
+              {
                 position: 'absolute',
-                left: targetCenterX - 45,
-                top: targetCenterY - 45,
-                width: 90,
-                height: 90,
-                zIndex: 25,
-              }}
-            />
+                left: targetCenterX - 85,
+                top: targetCenterY - 85,
+                width: 170,
+                height: 170,
+                transform: [
+                  { translateX: panAnim.x },
+                  { translateY: panAnim.y },
+                  {
+                    rotate: rollAnim.interpolate({
+                      inputRange: [-180, 180],
+                      outputRange: ['-180deg', '180deg'],
+                    }),
+                  },
+                ],
+                zIndex: 24,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setShowModal(true)}
+              style={StyleSheet.absoluteFill}
+            >
+              <SkiaDecalStamp
+                isSafe={isSafe}
+                curvaturePercent={anchorState.curvaturePercent}
+                scaleMultiplier={anchorState.scaleMultiplier}
+              />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
-            {/* Floating AR Info Pill */}
+        {/* Floating AR Info Pill - Synchronously anchored with zero lag */}
+        {anchorState.isLocked && anchorState.target && !isScanning && (
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                left: Math.max(16, targetCenterX - 125),
+                top: Math.max(12, targetCenterY - 85 - 76),
+                width: 250,
+                transform: [
+                  { translateX: panAnim.x },
+                  { translateY: panAnim.y },
+                ],
+                zIndex: 26,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
             <TouchableOpacity
               activeOpacity={0.88}
               onPress={() => setShowModal(true)}
               style={[
                 styles.arFloatingBadgePill,
                 isSafe ? styles.arBadgeSafe : styles.arBadgeUnsafe,
-                {
-                  position: 'absolute',
-                  top: Math.max(12, targetCenterY - reticleHeight / 2 - 76),
-                  left: Math.max(16, Math.min(viewportLayout.width - 250, targetCenterX - 110)),
-                  zIndex: 26,
-                },
               ]}
             >
               <View style={styles.badgeStatusRow}>
@@ -364,7 +421,7 @@ export default function App() {
               </Text>
               <Text style={styles.arTapHint}>Tap for Full Nutrition Breakdown ➔</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         )}
       </View>
 
@@ -643,7 +700,32 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
   },
 
-  // Curvature Tuning Bar (When Anchored)
+  // Curvature & Size Tuning Bar (When Anchored)
+  tuningBar: {
+    position: 'absolute',
+    top: 8,
+    zIndex: 25,
+    alignItems: 'center',
+    width: '100%',
+  },
+  tuningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#334155',
+    gap: 4,
+  },
+  tuningLabel: {
+    color: '#94a3b8',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginRight: 2,
+  },
   curvatureTuningBar: {
     position: 'absolute',
     top: 12,

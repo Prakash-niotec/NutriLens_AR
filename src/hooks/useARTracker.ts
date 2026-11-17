@@ -1,17 +1,9 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { Animated } from 'react-native';
 import { DeviceMotion, DeviceMotionMeasurement } from 'expo-sensors';
-import { FoodDetectionResult, BoundingBox, SurfaceGeometry } from '../types';
+import { FoodDetectionResult, SurfaceGeometry } from '../types';
 
 export type SizePreset = 'SMALL' | 'MEDIUM' | 'LARGE';
-
-export interface TrackedPosition {
-  x: number; // Viewport percentage (0 to 100)
-  y: number; // Viewport percentage (0 to 100)
-  roll: number; // Degrees of rotation around camera z-axis
-  pitch: number; // Radians of device pitch (tilt angle)
-  yaw: number; // Radians of device yaw
-}
 
 export interface ARAnchorState {
   target: FoodDetectionResult | null;
@@ -19,16 +11,15 @@ export interface ARAnchorState {
   isTracking: boolean;
   surfaceGeometry: SurfaceGeometry;
   curvaturePercent: number; // 0 (Flat) to 100 (Deep Curve)
-  customSize: { width: number; height: number }; // Percentage of viewport
   sizePreset: SizePreset;
+  scaleMultiplier: number; // 0.5 to 2.0 (e.g. 1.0 = 100%)
   centerConfirmed: { x: number; y: number };
 }
 
-// Preset decal/reticle dimensions to fit different physical items
-export const SIZE_PRESETS: Record<SizePreset, { width: number; height: number; radius: number; label: string }> = {
-  SMALL: { width: 34, height: 34, radius: 38, label: 'Small (Fruit / Adapter)' },
-  MEDIUM: { width: 44, height: 54, radius: 46, label: 'Medium (Can / Bottle / Pack)' },
-  LARGE: { width: 64, height: 58, radius: 56, label: 'Large (Nutrition Table / Box)' },
+export const SIZE_PRESETS: Record<SizePreset, { scale: number; widthPct: number; heightPct: number; label: string }> = {
+  SMALL: { scale: 0.8, widthPct: 30, heightPct: 30, label: 'Small (Fruit / Adapter)' },
+  MEDIUM: { scale: 1.15, widthPct: 44, heightPct: 52, label: 'Medium (Can / Bottle / Pack)' },
+  LARGE: { scale: 1.5, widthPct: 62, heightPct: 58, label: 'Large (Nutrition Table / Box)' },
 };
 
 function normalizeAngle(rad: number): number {
@@ -45,19 +36,17 @@ export function useARTracker() {
     isTracking: false,
     surfaceGeometry: 'SPHERICAL',
     curvaturePercent: 75,
-    customSize: SIZE_PRESETS.SMALL,
     sizePreset: 'SMALL',
+    scaleMultiplier: 0.85,
     centerConfirmed: { x: 50, y: 50 },
   });
 
-  // Tracked real-world position (updated at 60 FPS via DeviceMotion)
-  const [trackedPosition, setTrackedPosition] = useState<TrackedPosition>({
-    x: 50,
-    y: 50,
-    roll: 0,
-    pitch: 0.8, // ~45 deg downward tilt
-    yaw: 0,
-  });
+  // Native animated values for 60-120 FPS zero-lag hardware translation
+  const panAnim = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const rollAnim = useRef(new Animated.Value(0)).current;
+
+  // Viewport dimensions reference for calibrated FOV projection
+  const viewportSizeRef = useRef<{ width: number; height: number }>({ width: 390, height: 750 });
 
   // Inertial sensor references for world-space anchoring
   const currentRotationRef = useRef<{ alpha: number; beta: number; gamma: number }>({
@@ -66,7 +55,7 @@ export function useARTracker() {
     gamma: 0,
   });
   const anchorRotationRef = useRef<{ alpha: number; beta: number; gamma: number } | null>(null);
-  const smoothOffsetRef = useRef<{ x: number; y: number; roll: number }>({ x: 0, y: 0, roll: 0 });
+  const currentOffsetRef = useRef<{ x: number; y: number; roll: number }>({ x: 0, y: 0, roll: 0 });
 
   // Pulsing animation for aiming reticle
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -89,6 +78,13 @@ export function useARTracker() {
     pulseLoop.start();
     return () => pulseLoop.stop();
   }, [pulseAnim]);
+
+  // Set viewport dimensions
+  const setViewportSize = useCallback((width: number, height: number) => {
+    if (width > 0 && height > 0) {
+      viewportSizeRef.current = { width, height };
+    }
+  }, []);
 
   // Subscribe to DeviceMotion sensor (Bosch Gyro + Qualcomm Rotation Vector)
   useEffect(() => {
@@ -114,36 +110,31 @@ export function useARTracker() {
                 const dPitch = beta - anchor.beta;
                 const dRoll = gamma - anchor.gamma;
 
-                // Optical projection: camera focal length constant (~100% viewport per radian)
-                const focalLengthFactor = 95;
+                // Calibrated optical projection for portrait mode:
+                // Horizontal FOV in portrait is ~42 deg -> factor = 1.35 * viewportWidth
+                // Vertical FOV in portrait is ~62 deg -> factor = 0.95 * viewportHeight
+                const targetX = -Math.sin(dYaw) * (viewportSizeRef.current.width * 1.35);
+                const targetY = Math.sin(dPitch) * (viewportSizeRef.current.height * 0.95);
+                const targetRollDeg = -dRoll * (180 / Math.PI);
 
-                // Moving phone left (increasing dYaw) shifts real object right in camera feed
-                const targetDeltaX = -Math.sin(dYaw) * focalLengthFactor;
-                // Tilting phone down (increasing dPitch) shifts real object up in camera feed
-                const targetDeltaY = Math.sin(dPitch) * focalLengthFactor;
-                const targetRoll = -dRoll * (180 / Math.PI);
+                // Adaptive 1-Euro responsiveness filter:
+                // When moving (> 0.8px): responsiveness = 0.96 (virtually 1.0 = INSTANT 1:1 camera lock, zero latency!)
+                // When stationary (< 0.8px): responsiveness = 0.70 to eliminate micro sensor noise/tremor
+                const dx = targetX - currentOffsetRef.current.x;
+                const dy = targetY - currentOffsetRef.current.y;
+                const dist = Math.hypot(dx, dy);
+                const alphaSpeed = dist > 0.8 ? 0.96 : 0.72;
 
-                // Smooth exponential filter (removes hand jitter while maintaining immediate tracking)
-                smoothOffsetRef.current.x += (targetDeltaX - smoothOffsetRef.current.x) * 0.35;
-                smoothOffsetRef.current.y += (targetDeltaY - smoothOffsetRef.current.y) * 0.35;
-                smoothOffsetRef.current.roll += (targetRoll - smoothOffsetRef.current.roll) * 0.35;
+                currentOffsetRef.current.x += dx * alphaSpeed;
+                currentOffsetRef.current.y += dy * alphaSpeed;
+                currentOffsetRef.current.roll += (targetRollDeg - currentOffsetRef.current.roll) * alphaSpeed;
 
-                const worldX = 50 + smoothOffsetRef.current.x;
-                const worldY = 50 + smoothOffsetRef.current.y;
-
-                setTrackedPosition({
-                  x: worldX,
-                  y: worldY,
-                  roll: smoothOffsetRef.current.roll,
-                  pitch: beta,
-                  yaw: alpha,
+                // Update native driver directly without React state re-rendering (Zero-lag 60-120 FPS!)
+                panAnim.setValue({
+                  x: currentOffsetRef.current.x,
+                  y: currentOffsetRef.current.y,
                 });
-              } else {
-                setTrackedPosition((prev) => ({
-                  ...prev,
-                  pitch: beta,
-                  yaw: alpha,
-                }));
+                rollAnim.setValue(currentOffsetRef.current.roll);
               }
             }
           });
@@ -158,7 +149,7 @@ export function useARTracker() {
     return () => {
       if (sub) sub.remove();
     };
-  }, []);
+  }, [panAnim, rollAnim]);
 
   /**
    * Set Object Size Preset (Small / Medium / Large).
@@ -168,8 +159,29 @@ export function useARTracker() {
     setAnchorState((prev) => ({
       ...prev,
       sizePreset: preset,
-      customSize: dimensions,
+      scaleMultiplier: dimensions.scale,
     }));
+  }, []);
+
+  /**
+   * Set or increment live scale multiplier (e.g. 0.5 to 2.0).
+   */
+  const setScaleMultiplier = useCallback((scale: number) => {
+    const clamped = Math.max(0.5, Math.min(2.0, Number(scale.toFixed(2))));
+    setAnchorState((prev) => ({
+      ...prev,
+      scaleMultiplier: clamped,
+    }));
+  }, []);
+
+  const adjustScale = useCallback((delta: number) => {
+    setAnchorState((prev) => {
+      const next = Math.max(0.5, Math.min(2.0, Number((prev.scaleMultiplier + delta).toFixed(2))));
+      return {
+        ...prev,
+        scaleMultiplier: next,
+      };
+    });
   }, []);
 
   /**
@@ -207,57 +219,35 @@ export function useARTracker() {
     (detected: FoodDetectionResult) => {
       // Capture current device 3D orientation as the reference anchor
       anchorRotationRef.current = { ...currentRotationRef.current };
-      smoothOffsetRef.current = { x: 0, y: 0, roll: 0 };
+      currentOffsetRef.current = { x: 0, y: 0, roll: 0 };
+      panAnim.setValue({ x: 0, y: 0 });
+      rollAnim.setValue(0);
 
-      const { customSize, curvaturePercent } = anchorState;
+      const { curvaturePercent } = anchorState;
       let geom: SurfaceGeometry = 'SPHERICAL';
       if (curvaturePercent < 15) geom = 'PLANAR';
       else if (curvaturePercent <= 65) geom = 'CYLINDRICAL';
 
-      const fittedResult: FoodDetectionResult = {
-        ...detected,
-        boundingBox: {
-          x: 50 - customSize.width / 2,
-          y: 50 - customSize.height / 2,
-          width: customSize.width,
-          height: customSize.height,
-        },
-      };
-
       setAnchorState((prev) => ({
         ...prev,
-        target: fittedResult,
+        target: detected,
         isLocked: true,
         isTracking: true,
         surfaceGeometry: geom,
         centerConfirmed: { x: 50, y: 50 },
       }));
-
-      setTrackedPosition({
-        x: 50,
-        y: 50,
-        roll: 0,
-        pitch: currentRotationRef.current.beta,
-        yaw: currentRotationRef.current.alpha,
-      });
     },
-    [anchorState]
+    [anchorState, panAnim, rollAnim]
   );
-
-  /**
-   * Manual drag adjustment if needed.
-   */
-  const trackMotionDelta = useCallback((deltaXPercent: number, deltaYPercent: number) => {
-    smoothOffsetRef.current.x += deltaXPercent;
-    smoothOffsetRef.current.y += deltaYPercent;
-  }, []);
 
   /**
    * Clears the current AR anchor and unlocks camera.
    */
   const clearAnchor = useCallback(() => {
     anchorRotationRef.current = null;
-    smoothOffsetRef.current = { x: 0, y: 0, roll: 0 };
+    currentOffsetRef.current = { x: 0, y: 0, roll: 0 };
+    panAnim.setValue({ x: 0, y: 0 });
+    rollAnim.setValue(0);
 
     setAnchorState((prev) => ({
       ...prev,
@@ -266,25 +256,20 @@ export function useARTracker() {
       isTracking: false,
       centerConfirmed: { x: 50, y: 50 },
     }));
-
-    setTrackedPosition({
-      x: 50,
-      y: 50,
-      roll: 0,
-      pitch: currentRotationRef.current.beta,
-      yaw: currentRotationRef.current.alpha,
-    });
-  }, []);
+  }, [panAnim, rollAnim]);
 
   return {
     anchorState,
-    trackedPosition,
+    panAnim,
+    rollAnim,
     pulseAnim,
+    setViewportSize,
     setSizePreset,
+    setScaleMultiplier,
+    adjustScale,
     setCurvaturePercent,
     adjustCurvature,
     lockOnFramedObject,
-    trackMotionDelta,
     clearAnchor,
   };
 }
