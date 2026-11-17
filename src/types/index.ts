@@ -2,6 +2,8 @@ export type ScanMode = 'VEG_FRUIT' | 'PACKED_FOOD';
 
 export type SafetyStatus = 'SAFE' | 'UNSAFE';
 
+export type SurfaceGeometry = 'SPHERICAL' | 'CYLINDRICAL' | 'PLANAR';
+
 export interface BoundingBox {
   x: number;      // percentage (0-100) or pixel ratio
   y: number;      // percentage (0-100)
@@ -17,6 +19,7 @@ export interface FoodDetectionResult {
   safetyStatus: SafetyStatus;
   safetyScore: number; // 0 to 100
   confidence: number;  // 0 to 1
+  surfaceGeometry?: SurfaceGeometry;
   freshnessLevel?: string;
   pesticideRisk?: 'LOW' | 'MEDIUM' | 'HIGH';
   preservativesRisk?: 'NONE' | 'MODERATE' | 'HIGH';
