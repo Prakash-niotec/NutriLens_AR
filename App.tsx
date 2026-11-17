@@ -376,6 +376,7 @@ export default function App() {
                 isSafe={isSafe}
                 curvaturePercent={anchorState.curvaturePercent}
                 scaleMultiplier={anchorState.scaleMultiplier}
+                relativePitch={anchorState.relativePitch}
               />
             </TouchableOpacity>
           </Animated.View>

@@ -12,20 +12,22 @@ import {
 } from '@shopify/react-native-skia';
 
 /**
- * 1. SKIA DECAL STAMP (160 x 160 px)
+ * 1. SKIA DECAL STAMP (170 x 170 px)
  * 100% Solid, High-Contrast Physical Inspection Stamp.
- * Rendered on GPU with zero see-through transparency.
+ * Rendered on GPU with 3D Projective Homography Matrix (Perspective + Foreshortening).
  */
 export interface SkiaDecalStampProps {
   isSafe: boolean;
   curvaturePercent: number; // 0 to 100
   scaleMultiplier?: number; // 0.5 to 2.0 (default 1.0)
+  relativePitch?: number; // Radians of pitch tilt for 3D projective homography
 }
 
 export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
   isSafe,
   curvaturePercent,
   scaleMultiplier = 1.0,
+  relativePitch = 0.35,
 }) => {
   const curveNorm = Math.min(1, Math.max(0, curvaturePercent / 100));
 
@@ -35,6 +37,12 @@ export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
 
   // Base decal radius scaled dynamically
   const r = 44 * Math.max(0.5, Math.min(1.8, scaleMultiplier));
+
+  // 3D Perspective Homography Parameters:
+  // Clamped pitch tilt in radians (avoids singularity / extreme inversion)
+  const pitchAngle = Math.max(-0.72, Math.min(0.72, relativePitch));
+  // Horizontal cylindrical compression factor
+  const cylScaleX = 1.0 - 0.14 * curveNorm;
 
   // Solid, 100% Opaque Colors (Reduced transparency for high contrast & punchy look)
   const baseColor = isSafe ? '#10b981' : '#ef4444';
@@ -90,7 +98,15 @@ export const SkiaDecalStamp: React.FC<SkiaDecalStampProps> = ({
 
   return (
     <Canvas style={{ width: 170, height: 170 }}>
-      <Group origin={vec(cx, cy)}>
+      {/* 3D Projective Homography Group: Perspective keystoning + cylindrical scale */}
+      <Group
+        origin={vec(cx, cy)}
+        transform={[
+          { perspective: 420 },
+          { rotateX: pitchAngle },
+          { scaleX: cylScaleX },
+        ]}
+      >
         {/* 1. Surface Contact Drop Shadow (Physical Depth on Real Object) */}
         <Oval
           rect={rect(cx - r * 1.05, cy - r * 0.95 + 6, r * 2.1, r * 1.9)}
