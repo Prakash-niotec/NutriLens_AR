@@ -8,7 +8,6 @@ import {
   Modal,
   Dimensions,
   Animated,
-  PanResponder,
   LayoutChangeEvent,
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
@@ -59,15 +58,6 @@ export default function App() {
       requestPermission();
     }
   }, [hasPermission, requestPermission]);
-
-  // PanResponder to track object motion smoothly when moving on camera
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: () => {},
-    })
-  ).current;
 
   const [scanProgress, setScanProgress] = useState<number>(0);
   const scanLaserAnim = useRef(new Animated.Value(0)).current;
@@ -191,7 +181,6 @@ export default function App() {
       {/* Main Live Camera Viewport */}
       <View
         style={styles.cameraViewport}
-        {...panResponder.panHandlers}
         onLayout={(e: LayoutChangeEvent) => {
           const { width, height } = e.nativeEvent.layout;
           setViewportLayout({ width, height });
@@ -342,7 +331,7 @@ export default function App() {
           </TouchableOpacity>
         )}
 
-        {/* 100% Solid Skia AR Decal (Hardware-accelerated Zero-Lag tracking via Animated.View) */}
+        {/* Professional Translucent Skia AR Lens (Hardware-accelerated zero-lag tracking via Animated.View) */}
         {anchorState.isLocked && anchorState.target != null && (
           <Animated.View
             style={[
@@ -795,152 +784,6 @@ const styles = StyleSheet.create({
     zIndex: 25,
   },
   clearScanBtnText: { color: '#38bdf8', fontSize: 11, fontWeight: '700' },
-
-  // AR Anchored Bounding Box
-  arProductBox: {
-    position: 'absolute',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    zIndex: 10,
-  },
-  arProductBoxSafe: {
-    borderColor: 'rgba(16, 185, 129, 0.65)',
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-  },
-  arProductBoxUnsafe: {
-    borderColor: 'rgba(239, 68, 68, 0.65)',
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
-  },
-
-  // 3D Surface Latitude Lines (Wireframe mapping curvature)
-  surfaceLatitudeTop: {
-    position: 'absolute',
-    top: '18%',
-    width: '100%',
-    height: '22%',
-    borderBottomWidth: 1.5,
-    borderRadius: 999,
-  },
-  surfaceLatitudeEquator: {
-    position: 'absolute',
-    top: '42%',
-    width: '100%',
-    height: '16%',
-    borderTopWidth: 1.5,
-    borderBottomWidth: 1.5,
-    borderRadius: 999,
-  },
-  surfaceLatitudeBottom: {
-    position: 'absolute',
-    bottom: '18%',
-    width: '100%',
-    height: '22%',
-    borderTopWidth: 1.5,
-    borderRadius: 999,
-  },
-  latitudeSafe: {
-    borderColor: 'rgba(52, 211, 153, 0.45)',
-  },
-  latitudeUnsafe: {
-    borderColor: 'rgba(248, 113, 113, 0.45)',
-  },
-
-  // Corner Brackets with animated curvature
-  cornerBracket: {
-    position: 'absolute',
-    width: 24,
-    height: 24,
-  },
-  bracketTL: {
-    top: -2,
-    left: -2,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-  },
-  bracketTR: {
-    top: -2,
-    right: -2,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-  },
-  bracketBL: {
-    bottom: -2,
-    left: -2,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-  },
-  bracketBR: {
-    bottom: -2,
-    right: -2,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-  },
-  bracketSafe: { borderColor: '#10b981' },
-  bracketUnsafe: { borderColor: '#ef4444' },
-
-  // 3D Curved Sign Badge
-  anchorCenterTouch: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  arCurvedGlowRing: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  glowRingSafe: {
-    backgroundColor: 'rgba(16, 185, 129, 0.25)',
-    borderWidth: 2,
-    borderColor: '#34d399',
-  },
-  glowRingUnsafe: {
-    backgroundColor: 'rgba(239, 68, 68, 0.25)',
-    borderWidth: 2,
-    borderColor: '#f87171',
-  },
-
-  badgeIconCircleLarge: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.85,
-    shadowRadius: 14,
-    elevation: 10,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  curvedBadgeBorder: {
-    borderWidth: 2.5,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-  },
-  iconBgSafe: { backgroundColor: '#10b981' },
-  iconBgUnsafe: { backgroundColor: '#ef4444' },
-
-  specularHighlight: {
-    position: 'absolute',
-    top: 3,
-    left: 8,
-    width: 24,
-    height: 12,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.55)',
-    transform: [{ rotate: '-25deg' }],
-  },
-  bottomShadowArc: {
-    position: 'absolute',
-    bottom: 1,
-    width: '100%',
-    height: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.38)',
-  },
-  badgeIconSymbolLarge: { color: '#ffffff', fontWeight: '900', fontSize: 32 },
 
   // Floating AR Pill
   arFloatingBadgePill: {

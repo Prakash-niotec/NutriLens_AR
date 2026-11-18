@@ -38,25 +38,3 @@ export interface FoodDetectionResult {
   recommendation: string;
   boundingBox: BoundingBox;
 }
-
-export interface ScanHistoryItem {
-  id: string;
-  timestamp: string;
-  mode: ScanMode;
-  result: FoodDetectionResult;
-  userSaved?: boolean;
-}
-
-export interface UserDietarySettings {
-  allergies: {
-    nuts: boolean;
-    gluten: boolean;
-    dairy: boolean;
-    soy: boolean;
-    shellfish: boolean;
-  };
-  preferOrganic: boolean;
-  avoidHighSugar: boolean;
-  avoidPreservatives: boolean;
-  maxSodiumPer100g: number;
-}
